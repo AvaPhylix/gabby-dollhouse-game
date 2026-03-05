@@ -1,42 +1,55 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import Confetti from "react-confetti";
 import Image from "next/image";
 import AnimatedBackground from "@/components/AnimatedBackground";
 import HomeButton from "@/components/HomeButton";
 import { getFamilyMembers, FamilyMember } from "@/lib/supabase";
 
-const COLORS = [
-  { id: "red", hex: "#E63946", label: "Red" },
-  { id: "pink", hex: "#FF69B4", label: "Pink" },
-  { id: "gold", hex: "#FFD700", label: "Gold" },
-  { id: "purple", hex: "#9C27B0", label: "Purple" },
-  { id: "blue", hex: "#2196F3", label: "Blue" },
-  { id: "green", hex: "#4CAF50", label: "Green" },
-  { id: "orange", hex: "#FF9800", label: "Orange" },
-  { id: "white", hex: "#FFFFFF", label: "Eraser" },
+/* ── Magic Markers ─────────────────────────────────────── */
+const MARKERS = [
+  {
+    id: "neon-red",
+    color: "#FF1744",
+    glow: "rgba(255,23,68,0.8)",
+    label: "Glowing Neon Red",
+    emoji: "🔴",
+  },
+  {
+    id: "hot-pink",
+    color: "#FF69B4",
+    glow: "rgba(255,105,180,0.8)",
+    label: "Hot Pink",
+    emoji: "💗",
+  },
+  {
+    id: "white",
+    color: "#FFFFFF",
+    glow: "rgba(255,255,255,0.6)",
+    label: "White (Eraser)",
+    emoji: "⚪",
+  },
 ];
 
-const BRUSH_SIZES = [8, 16, 28, 40];
-
-const STICKERS = ["⭐", "❤️", "🐱", "🧁", "🎀", "✨", "🌈", "🎂", "🍰", "🎉"];
+const BRUSH_SIZE = 12;
 
 export default function DoodlePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [color, setColor] = useState("#E63946");
-  const [brushSize, setBrushSize] = useState(16);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [activeMarker, setActiveMarker] = useState(MARKERS[0]);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [stickers, setStickers] = useState<{ emoji: string; x: number; y: number; id: number }[]>([]);
-  const [stickerMode, setStickerMode] = useState<string | null>(null);
   const [family, setFamily] = useState<FamilyMember[]>([]);
   const [bgMember, setBgMember] = useState<FamilyMember | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [windowSize, setWindowSize] = useState({ w: 800, h: 600 });
   const lastPos = useRef<{ x: number; y: number } | null>(null);
-  const stickerIdRef = useRef(0);
 
   useEffect(() => {
+    setWindowSize({ w: window.innerWidth, h: window.innerHeight });
     getFamilyMembers().then((members) => {
       setFamily(members);
       if (members.length > 0) {
@@ -45,87 +58,135 @@ export default function DoodlePage() {
     });
   }, []);
 
+  /* ── Canvas setup ── */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "#FFF5F5";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+    const resize = () => {
+      const parent = canvas.parentElement;
+      if (!parent) return;
+      canvas.width = parent.clientWidth;
+      canvas.height = parent.clientHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
   }, []);
 
-  const getPos = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    if ("touches" in e) {
-      return {
-        x: e.touches[0].clientX - rect.left,
-        y: e.touches[0].clientY - rect.top,
-      };
-    }
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }, []);
+  /* ── Drawing helpers ── */
+  const getPos = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return { x: 0, y: 0 };
+      const rect = canvas.getBoundingClientRect();
+      if ("touches" in e) {
+        return {
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top,
+        };
+      }
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    },
+    []
+  );
 
   const startDraw = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
-      if (stickerMode) {
-        const pos = getPos(e);
-        stickerIdRef.current += 1;
-        setStickers((prev) => [
-          ...prev,
-          { emoji: stickerMode, x: pos.x, y: pos.y, id: stickerIdRef.current },
-        ]);
-        return;
-      }
+      e.preventDefault();
       setIsDrawing(true);
       lastPos.current = getPos(e);
+
+      // Draw a dot at the start point
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (!ctx || !lastPos.current) return;
+      ctx.beginPath();
+      ctx.arc(lastPos.current.x, lastPos.current.y, BRUSH_SIZE / 2, 0, Math.PI * 2);
+      ctx.fillStyle = activeMarker.color;
+      ctx.fill();
+
+      // Glow effect
+      if (activeMarker.id !== "white") {
+        ctx.shadowColor = activeMarker.glow;
+        ctx.shadowBlur = 15;
+      }
     },
-    [stickerMode, getPos]
+    [activeMarker, getPos]
   );
 
   const draw = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
-      if (!isDrawing || stickerMode) return;
+      e.preventDefault();
+      if (!isDrawing) return;
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (!ctx || !lastPos.current) return;
 
       const pos = getPos(e);
+
       ctx.beginPath();
       ctx.moveTo(lastPos.current.x, lastPos.current.y);
       ctx.lineTo(pos.x, pos.y);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = brushSize;
+      ctx.strokeStyle = activeMarker.color;
+      ctx.lineWidth = BRUSH_SIZE;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
+
+      if (activeMarker.id !== "white") {
+        ctx.shadowColor = activeMarker.glow;
+        ctx.shadowBlur = 15;
+      } else {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+      }
+
       ctx.stroke();
       lastPos.current = pos;
     },
-    [isDrawing, stickerMode, color, brushSize, getPos]
+    [isDrawing, activeMarker, getPos]
   );
 
   const endDraw = useCallback(() => {
     setIsDrawing(false);
     lastPos.current = null;
+    const ctx = canvasRef.current?.getContext("2d");
+    if (ctx) {
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+    }
   }, []);
 
+  /* ── Clear with fade ── */
   const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (ctx && canvas) {
-      ctx.fillStyle = "#FFF5F5";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    setStickers([]);
+    setClearing(true);
+    setTimeout(() => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (ctx && canvas) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      setClearing(false);
+    }, 500);
   };
 
-  const celebrate = () => {
+  /* ── Save with animation ── */
+  const handleSave = () => {
+    setSaved(true);
     setShowConfetti(true);
-    setTimeout(() => setShowConfetti(false), 4000);
+
+    // Download the composite image
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const link = document.createElement("a");
+      link.download = "cakey-doodle.png";
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+
+    setTimeout(() => {
+      setSaved(false);
+      setShowConfetti(false);
+    }, 4000);
   };
 
   return (
@@ -135,9 +196,9 @@ export default function DoodlePage() {
 
       {showConfetti && (
         <Confetti
-          width={typeof window !== "undefined" ? window.innerWidth : 800}
-          height={typeof window !== "undefined" ? window.innerHeight : 600}
-          numberOfPieces={300}
+          width={windowSize.w}
+          height={windowSize.h}
+          numberOfPieces={350}
           recycle={false}
           colors={["#E63946", "#FFD700", "#FFB3BA", "#FF69B4", "#FF1744"]}
         />
@@ -151,17 +212,19 @@ export default function DoodlePage() {
           animate={{ y: 0, opacity: 1 }}
           transition={{ type: "spring", bounce: 0.5 }}
         >
-          🎨 Family Doodle! 🎨
+          🎨 Family Photo Doodle! 🎨
         </motion.h1>
 
-        {/* Background family member selector */}
+        {/* Family photo selector */}
         {family.length > 0 && (
-          <div className="flex gap-2 justify-center mb-4">
+          <div className="flex gap-3 justify-center mb-4">
             {family.map((member) => (
               <motion.button
                 key={member.id}
-                className={`w-12 h-12 rounded-full overflow-hidden border-4 ${
-                  bgMember?.id === member.id ? "border-cakey-gold" : "border-cakey-pink"
+                className={`w-14 h-14 rounded-full overflow-hidden border-4 shadow-md ${
+                  bgMember?.id === member.id
+                    ? "border-cakey-gold scale-110"
+                    : "border-cakey-pink"
                 }`}
                 onClick={() => setBgMember(member)}
                 whileHover={{ scale: 1.2 }}
@@ -170,8 +233,8 @@ export default function DoodlePage() {
                 <Image
                   src={member.image_url}
                   alt={member.name}
-                  width={48}
-                  height={48}
+                  width={56}
+                  height={56}
                   className="w-full h-full object-cover"
                 />
               </motion.button>
@@ -179,137 +242,201 @@ export default function DoodlePage() {
           </div>
         )}
 
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Canvas area */}
-          <motion.div
-            className="relative flex-1 bg-white rounded-3xl border-4 border-cakey-pink shadow-2xl overflow-hidden"
-            style={{ minHeight: 400 }}
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", bounce: 0.3 }}
-          >
-            {/* Background family face (faded) */}
-            {bgMember && (
-              <div className="absolute inset-0 flex items-center justify-center opacity-15 pointer-events-none">
-                <Image
-                  src={bgMember.image_url}
-                  alt={bgMember.name}
-                  width={300}
-                  height={300}
-                  className="w-64 h-64 object-cover rounded-full"
-                />
-              </div>
-            )}
+        {/* Canvas area */}
+        <motion.div
+          ref={containerRef}
+          className="relative bg-white rounded-3xl border-4 border-cakey-pink shadow-2xl overflow-hidden mx-auto"
+          style={{ height: "min(60vh, 500px)" }}
+          initial={{ scale: 0.85, opacity: 0 }}
+          animate={
+            saved
+              ? { scale: [1, 0.3], opacity: [1, 0] }
+              : { scale: 1, opacity: 1 }
+          }
+          transition={
+            saved
+              ? { duration: 0.8, ease: "easeIn" }
+              : { type: "spring", bounce: 0.3 }
+          }
+        >
+          {/* Background family photo */}
+          {bgMember && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <Image
+                src={bgMember.image_url}
+                alt={bgMember.name}
+                fill
+                className="object-cover"
+              />
+            </div>
+          )}
 
-            <canvas
-              ref={canvasRef}
-              className="w-full h-full min-h-[400px] touch-none cursor-crosshair"
-              onMouseDown={startDraw}
-              onMouseMove={draw}
-              onMouseUp={endDraw}
-              onMouseLeave={endDraw}
-              onTouchStart={startDraw}
-              onTouchMove={draw}
-              onTouchEnd={endDraw}
-            />
+          {/* Canvas overlay — transparent, perfectly layered */}
+          <canvas
+            ref={canvasRef}
+            className={`absolute inset-0 w-full h-full touch-none z-10 transition-opacity duration-500 ${
+              clearing ? "opacity-0" : "opacity-100"
+            }`}
+            style={{ cursor: "crosshair" }}
+            onMouseDown={startDraw}
+            onMouseMove={draw}
+            onMouseUp={endDraw}
+            onMouseLeave={endDraw}
+            onTouchStart={startDraw}
+            onTouchMove={draw}
+            onTouchEnd={endDraw}
+          />
 
-            {/* Stickers overlay */}
-            {stickers.map((s) => (
-              <motion.span
-                key={s.id}
-                className="absolute text-3xl pointer-events-none select-none"
-                style={{ left: s.x - 16, top: s.y - 16 }}
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", bounce: 0.6 }}
+          {/* Photo label */}
+          {bgMember && (
+            <motion.div
+              className="absolute bottom-2 left-2 bg-black/50 text-white px-3 py-1 rounded-full text-sm font-bold z-20 pointer-events-none"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              {bgMember.name}
+            </motion.div>
+          )}
+        </motion.div>
+
+        {/* Save success overlay */}
+        <AnimatePresence>
+          {saved && (
+            <motion.div
+              className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                className="bg-white rounded-3xl p-8 shadow-2xl border-4 border-cakey-gold text-center"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
+                transition={{ type: "spring", bounce: 0.5 }}
               >
-                {s.emoji}
-              </motion.span>
-            ))}
-          </motion.div>
-
-          {/* Tool palette */}
-          <div className="flex md:flex-col gap-3 flex-wrap justify-center">
-            {/* Colors */}
-            <div className="flex md:flex-col gap-2">
-              {COLORS.map((c) => (
-                <motion.button
-                  key={c.id}
-                  className={`w-12 h-12 rounded-full border-4 ${
-                    color === c.hex && !stickerMode ? "border-cakey-dark scale-110" : "border-white"
-                  } shadow-lg`}
-                  style={{ backgroundColor: c.hex }}
-                  onClick={() => {
-                    setColor(c.hex);
-                    setStickerMode(null);
-                  }}
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
-                  title={c.label}
-                />
-              ))}
-            </div>
-
-            {/* Brush sizes */}
-            <div className="flex md:flex-col gap-2 items-center">
-              {BRUSH_SIZES.map((size) => (
-                <motion.button
-                  key={size}
-                  className={`rounded-full bg-cakey-dark ${
-                    brushSize === size ? "ring-4 ring-cakey-gold" : ""
-                  }`}
-                  style={{ width: size + 12, height: size + 12 }}
-                  onClick={() => {
-                    setBrushSize(size);
-                    setStickerMode(null);
-                  }}
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
-                />
-              ))}
-            </div>
-
-            {/* Stickers */}
-            <div className="flex md:flex-col gap-1 flex-wrap">
-              {STICKERS.map((emoji) => (
-                <motion.button
-                  key={emoji}
-                  className={`text-2xl w-10 h-10 rounded-lg flex items-center justify-center ${
-                    stickerMode === emoji ? "bg-cakey-gold border-2 border-cakey-dark" : "bg-white border-2 border-cakey-pink"
-                  }`}
-                  onClick={() => setStickerMode(stickerMode === emoji ? null : emoji)}
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
+                <span className="text-6xl block mb-4">🖼️</span>
+                <p
+                  className="text-2xl font-bold text-cakey-red"
+                  style={{ fontFamily: "var(--font-display)" }}
                 >
-                  {emoji}
-                </motion.button>
-              ))}
-            </div>
-          </div>
-        </div>
+                  Saved to Gallery! ✨
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Action buttons */}
-        <div className="flex gap-4 justify-center mt-6 pb-8">
-          <motion.button
-            className="bg-cakey-red text-white text-xl font-bold py-4 px-8 rounded-full shadow-lg border-4 border-cakey-gold"
-            style={{ fontFamily: "var(--font-display)" }}
-            onClick={celebrate}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            ✨ Ta-Da! ✨
-          </motion.button>
+        {/* ── Bottom Toolbar: Magic Markers ── */}
+        <motion.div
+          className="flex flex-wrap items-center justify-center gap-4 mt-6 pb-8"
+          initial={{ y: 40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ type: "spring", delay: 0.3 }}
+        >
+          {/* Markers */}
+          {MARKERS.map((marker) => {
+            const isActive = activeMarker.id === marker.id;
+            return (
+              <motion.button
+                key={marker.id}
+                className={`
+                  flex flex-col items-center justify-center
+                  w-20 h-24 md:w-24 md:h-28
+                  rounded-2xl border-4 shadow-lg
+                  ${
+                    isActive
+                      ? "border-cakey-gold bg-cakey-gold/20"
+                      : "border-cakey-pink bg-white"
+                  }
+                `}
+                onClick={() => setActiveMarker(marker)}
+                animate={
+                  isActive
+                    ? {
+                        scale: [1.1, 1.15, 1.1],
+                        boxShadow: [
+                          `0 0 0px ${marker.glow}`,
+                          `0 0 20px ${marker.glow}`,
+                          `0 0 0px ${marker.glow}`,
+                        ],
+                      }
+                    : { scale: 1 }
+                }
+                transition={
+                  isActive
+                    ? { duration: 1.2, repeat: Infinity }
+                    : {}
+                }
+                whileHover={{ scale: isActive ? 1.15 : 1.08 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <div
+                  className="w-10 h-10 rounded-full border-2 border-gray-300 mb-1"
+                  style={{
+                    backgroundColor: marker.color,
+                    boxShadow: isActive
+                      ? `0 0 15px ${marker.glow}`
+                      : "none",
+                  }}
+                />
+                <span
+                  className="text-xs font-bold text-cakey-dark text-center leading-tight"
+                  style={{ fontFamily: "var(--font-display)" }}
+                >
+                  {marker.label}
+                </span>
+              </motion.button>
+            );
+          })}
 
+          {/* Divider */}
+          <div className="w-px h-16 bg-cakey-pink hidden md:block" />
+
+          {/* Clear button */}
           <motion.button
-            className="bg-cakey-pink text-cakey-dark text-xl font-bold py-4 px-8 rounded-full shadow-lg border-4 border-white"
+            className="bg-cakey-pink text-cakey-dark text-lg font-bold py-4 px-6 rounded-full shadow-lg border-4 border-white"
             style={{ fontFamily: "var(--font-display)" }}
             onClick={clearCanvas}
-            whileHover={{ scale: 1.1 }}
+            whileHover={{ scale: 1.1, rotate: [-3, 3, 0] }}
             whileTap={{ scale: 0.9 }}
           >
             🗑️ Clear
           </motion.button>
-        </div>
+
+          {/* Save button */}
+          <motion.button
+            className="bg-cakey-red text-white text-lg font-bold py-4 px-8 rounded-full shadow-2xl border-4 border-cakey-gold"
+            style={{ fontFamily: "var(--font-display)" }}
+            onClick={handleSave}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            animate={{
+              boxShadow: [
+                "0 0 0px rgba(230,57,70,0.3)",
+                "0 0 20px rgba(230,57,70,0.7)",
+                "0 0 0px rgba(230,57,70,0.3)",
+              ],
+            }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            💾 Save! ✨
+          </motion.button>
+        </motion.div>
+
+        {/* Cakey helper */}
+        <motion.div
+          className="fixed bottom-4 right-4 z-40 w-20 h-20"
+          animate={{ y: [0, -8, 0], rotate: [-3, 3, -3] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Image
+            src="https://www.dreamworks.com/storage/cms-uploads/cakey-hero2.png"
+            alt="Cakey"
+            width={80}
+            height={80}
+            className="w-full h-full object-contain drop-shadow-lg"
+          />
+        </motion.div>
       </div>
     </main>
   );
