@@ -19,7 +19,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-cakey-bg relative overflow-hidden">
+      <body className="min-h-screen bg-cakey-bg relative overflow-x-hidden overflow-y-auto">
         {children}
       </body>
     </html>
