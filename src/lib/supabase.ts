@@ -17,13 +17,13 @@ export interface FamilyMember {
 
 export async function getFamilyMembers(): Promise<FamilyMember[]> {
   if (!supabase) {
-    // Return mock data when Supabase is not configured
+    // Return mock data with local images when Supabase is not configured
     return [
-      { id: "1", name: "Dad Phillip", role: "Dad", image_url: "/images/girl1.jpg" },
-      { id: "2", name: "Mom Christina", role: "Mom", image_url: "/images/girl2.jpg" },
-      { id: "3", name: "Grandma Sandy", role: "Grandma", image_url: "/images/girl3.jpg" },
-      { id: "4", name: "Sister", role: "Sister", image_url: "/images/girl1.jpg" },
-      { id: "5", name: "Cousin", role: "Cousin", image_url: "/images/girl2.jpg" },
+      { id: "1", name: "Dad Phillip", role: "Dad", image_url: "/images/dad.jpg" },
+      { id: "2", name: "Mom Christina", role: "Mom", image_url: "/images/mom.jpg" },
+      { id: "3", name: "Grandma Sandy", role: "Grandma", image_url: "/images/grandma.jpg" },
+      { id: "4", name: "Sister", role: "Sister", image_url: "/images/sister.jpg" },
+      { id: "5", name: "Cousin", role: "Cousin", image_url: "/images/cousin.jpg" },
     ];
   }
 
