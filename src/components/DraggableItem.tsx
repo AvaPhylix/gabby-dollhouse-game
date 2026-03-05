@@ -1,7 +1,6 @@
 "use client";
 
 import { useDraggable } from "@dnd-kit/core";
-import { motion } from "framer-motion";
 
 interface DraggableItemProps {
   id: string;
@@ -11,22 +10,15 @@ interface DraggableItemProps {
 }
 
 export default function DraggableItem({ id, emoji, label, isPlaced }: DraggableItemProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id,
   });
-
-  const style = transform
-    ? {
-        transform: `translate(${transform.x}px, ${transform.y}px)`,
-      }
-    : undefined;
 
   if (isPlaced) return null;
 
   return (
-    <motion.div
+    <div
       ref={setNodeRef}
-      style={style}
       {...listeners}
       {...attributes}
       className={`
@@ -35,16 +27,10 @@ export default function DraggableItem({ id, emoji, label, isPlaced }: DraggableI
         bg-white rounded-2xl shadow-lg border-4 border-cakey-pink
         cursor-grab active:cursor-grabbing
         touch-none select-none
-        ${isDragging ? "z-50 opacity-80 shadow-2xl" : "z-10"}
+        transition-transform duration-150
+        hover:scale-110 active:scale-110
+        ${isDragging ? "opacity-30" : "opacity-100"}
       `}
-      whileHover={{ scale: 1.1, rotate: [-5, 5, 0] }}
-      whileTap={{ scale: 1.15 }}
-      animate={
-        isDragging
-          ? { scale: 1.2, rotate: 5 }
-          : { scale: 1, rotate: 0 }
-      }
-      transition={{ type: "spring", stiffness: 400, damping: 15 }}
     >
       <span className="text-5xl">{emoji}</span>
       <span
@@ -53,6 +39,6 @@ export default function DraggableItem({ id, emoji, label, isPlaced }: DraggableI
       >
         {label}
       </span>
-    </motion.div>
+    </div>
   );
 }
